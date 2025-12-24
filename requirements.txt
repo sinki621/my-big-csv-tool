@@ -1,0 +1,5 @@
+polars
+pyqtgraph
+PyQt5
+pandas
+numpy
