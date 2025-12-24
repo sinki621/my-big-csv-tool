@@ -1,7 +1,21 @@
 import sys
-import polars as pl
-import pyqtgraph as pg
-from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QFileDialog, QMessageBox
+import os
+
+# 에러 로그를 확인하기 위한 설정
+def exception_hook(exctype, value, traceback):
+    print(exctype, value, traceback)
+    sys._excepthook(exctype, value, traceback)
+    sys.exit(1)
+
+sys.excepthook = exception_hook
+
+try:
+    import polars as pl
+    import pyqtgraph as pg
+    from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QFileDialog, QMessageBox
+    from PyQt5.QtCore import Qt
+except ImportError as e:
+    print(f"필수 라이브러리 로드 실패: {e}")
 
 class BigDataChartApp(QWidget):
     def __init__(self):
@@ -9,45 +23,45 @@ class BigDataChartApp(QWidget):
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle('1M+ Row CSV Visualizer (High Speed)')
+        self.setWindowTitle('1M+ Row CSV Visualizer')
         layout = QVBoxLayout()
 
-        # 파일 불러오기 버튼
-        self.btn = QPushButton('대용량 CSV 파일 불러오기 (Polars 엔진)', self)
+        self.btn = QPushButton('대용량 CSV 파일 불러오기', self)
         self.btn.setFixedHeight(50)
         self.btn.clicked.connect(self.loadCSV)
         layout.addWidget(self.btn)
 
-        # 고성능 차트 위젯 (PyQtGraph)
         self.graphWidget = pg.PlotWidget()
-        self.graphWidget.setBackground('w')  # 배경 흰색
+        self.graphWidget.setBackground('w')
         self.graphWidget.showGrid(x=True, y=True)
-        self.graphWidget.addLegend()
         layout.addWidget(self.graphWidget)
 
         self.setLayout(layout)
         self.resize(1000, 700)
 
     def loadCSV(self):
-        fname = QFileDialog.getOpenFileName(self, 'Open file', './', "CSV files (*.csv)")[0]
+        fname, _ = QFileDialog.getOpenFileName(self, 'Open file', '', "CSV files (*.csv)")
         if fname:
             try:
-                # 1. Polars로 초고속 읽기
-                df = pl.read_csv(fname)
+                # Polars로 읽기 (메모리 효율적 방식)
+                df = pl.scan_csv(fname).collect()
                 
-                # 차트 초기화
                 self.graphWidget.clear()
                 
-                # 2. 데이터 렌더링 (첫 번째 열을 X, 두 번째 열을 Y로 가정)
-                # 데이터가 너무 많을 경우를 대비해 numpy array로 변환
-                x_data = df.to_pandas().iloc[:, 0].values # X축
-                y_data = df.to_pandas().iloc[:, 1].values # Y축
+                # 데이터가 있는지 확인
+                if df.width < 2:
+                    QMessageBox.warning(self, "경고", "CSV 파일에 최소 2개 이상의 열이 필요합니다.")
+                    return
 
-                # 3. PyQtGraph로 그리기 (GPU 가속 활용)
-                self.graphWidget.plot(x_data, y_data, pen=pg.mkPen(color='b', width=1), name="Data")
+                # 고속 렌더링을 위해 numpy 변환
+                x = df.get_column(df.columns[0]).to_numpy()
+                y = df.get_column(df.columns[1]).to_numpy()
+
+                self.graphWidget.plot(x, y, pen=pg.mkPen(color='b', width=1))
+                self.graphWidget.autoRange()
                 
             except Exception as e:
-                QMessageBox.about(self, "Error", f"실패: {str(e)}")
+                QMessageBox.critical(self, "에러 발생", f"파일을 읽는 중 오류가 발생했습니다:\n{str(e)}")
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
