@@ -1,4 +1,5 @@
 polars
+pyarrow
 pyqtgraph
 PyQt5
 pandas
