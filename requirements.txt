@@ -3,3 +3,4 @@ pyarrow
 pyqtgraph
 PyQt5
 numpy
+python-dateutil
