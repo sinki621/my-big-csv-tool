@@ -4,3 +4,4 @@ pyqtgraph
 PyQt5
 numpy
 python-dateutil
+PyOpenGL
