@@ -3,85 +3,96 @@ import polars as pl
 import pyqtgraph as pg
 import numpy as np
 from datetime import datetime
-from dateutil import parser
 from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QFileDialog, QMessageBox, QLabel, 
                              QListWidget, QListWidgetItem, QAbstractItemView)
 from PyQt5.QtCore import Qt
 
+# 성능 최적화 설정
+pg.setConfigOptions(antialias=False, useOpenGL=True)
+
 class DateAxisItem(pg.AxisItem):
     def tickStrings(self, values, scale, spacing):
         return [datetime.fromtimestamp(value).strftime('%Y-%m-%d\n%H:%M:%S') for value in values if value > 0]
 
-class BigDataChartApp(QWidget):
+class UltimateChartApp(QWidget):
     def __init__(self):
         super().__init__()
         self.initUI()
         self.df = None
         self.x_timestamps = None
-        self.plot_items = {} # 그려진 라인 객체들을 저장
+        self.plot_items = {}
 
     def initUI(self):
-        self.setWindowTitle('Advanced Multi-Column Visualizer')
-        
-        # 메인 레이아웃 (좌우 배치)
+        self.setWindowTitle('1M+ Ultra Visualizer Pro')
         main_layout = QHBoxLayout()
         
-        # --- 왼쪽 제어판 (리스트 및 버튼) ---
+        # --- 왼쪽 제어판 ---
         side_layout = QVBoxLayout()
         
-        self.btn = QPushButton('CSV 불러오기', self)
-        self.btn.setFixedHeight(40)
+        self.btn = QPushButton('CSV 파일 불러오기', self)
+        self.btn.setFixedHeight(45)
+        self.btn.setStyleSheet("background-color: #e1e1e1; font-weight: bold;")
         self.btn.clicked.connect(self.loadCSV)
         side_layout.addWidget(self.btn)
 
-        side_layout.addWidget(QLabel("표시할 데이터 선택:"))
+        # 전체 선택/해제 버튼
+        btn_layout = QHBoxLayout()
+        self.selectAllBtn = QPushButton('전체 선택')
+        self.selectNoneBtn = QPushButton('전체 해제')
+        self.selectAllBtn.clicked.connect(lambda: self.setAllCheckState(Qt.Checked))
+        self.selectNoneBtn.clicked.connect(lambda: self.setAllCheckState(Qt.Unchecked))
+        btn_layout.addWidget(self.selectAllBtn)
+        btn_layout.addWidget(self.selectNoneBtn)
+        side_layout.addLayout(btn_layout)
+
+        side_layout.addWidget(QLabel("Y축 데이터 선택:"))
         self.columnList = QListWidget()
         self.columnList.setSelectionMode(QAbstractItemView.NoSelection)
         self.columnList.itemChanged.connect(self.updatePlots)
         side_layout.addWidget(self.columnList)
         
-        side_widget = QWidget()
-        side_widget.setLayout(side_layout)
-        side_widget.setFixedWidth(200)
+        side_widget = QWidget(); side_widget.setLayout(side_layout); side_widget.setFixedWidth(220)
         
         # --- 오른쪽 그래프 영역 ---
         graph_layout = QVBoxLayout()
-        self.infoLabel = QLabel("CSV 파일을 불러와주세요.")
+        self.infoLabel = QLabel("마우스 휠로 확대/축소, 마우스 우클릭 드래그로 축별 이동이 가능합니다.")
         graph_layout.addWidget(self.infoLabel)
 
         date_axis = DateAxisItem(orientation='bottom')
         self.graphWidget = pg.PlotWidget(axisItems={'bottom': date_axis})
         self.graphWidget.setBackground('w')
         self.graphWidget.showGrid(x=True, y=True)
-        self.graphWidget.addLegend()
+        
+        # 확대/축소 및 성능 설정
+        self.graphWidget.setMouseEnabled(x=True, y=True) # 휠 확대/축소 활성화
+        self.graphWidget.setClipToView(True)
+        self.graphWidget.setDownsampling(mode='peak')
+        
         graph_layout.addWidget(self.graphWidget)
 
-        # 십자선 설정
+        # 십자선
         self.vLine = pg.InfiniteLine(angle=90, movable=False, pen='k')
-        self.hLine = pg.InfiniteLine(angle=0, movable=False, pen='k')
         self.graphWidget.addItem(self.vLine, ignoreBounds=True)
-        self.graphWidget.addItem(self.hLine, ignoreBounds=True)
 
         self.proxy = pg.SignalProxy(self.graphWidget.scene().sigMouseMoved, rateLimit=60, slot=self.mouseMoved)
 
-        # 전체 레이아웃 합치기
         main_layout.addWidget(side_widget)
         main_layout.addLayout(graph_layout)
-        
         self.setLayout(main_layout)
-        self.resize(1200, 800)
+        self.resize(1300, 850)
 
-    def parse_dates_custom(self, series):
-        try:
-            return series.cast(pl.Datetime).cast(pl.Int64) / 10**6
-        except:
-            sample = str(series[0])
-            try:
-                parsed_sample = parser.parse(sample)
-                return series.map_elements(lambda x: parser.parse(str(x)).timestamp(), return_dtype=pl.Float64)
-            except:
-                return pl.Series(np.arange(len(series)))
+    def setAllCheckState(self, state):
+        """리스트의 모든 체크박스 상태를 변경"""
+        self.columnList.blockSignals(True) # 대량 변경 시 이벤트 일시 정지 (렉 방지)
+        for i in range(self.columnList.count()):
+            item = self.columnList.item(i)
+            item.setCheckState(state)
+            col_name = item.text()
+            if col_name in self.plot_items:
+                self.plot_items[col_name].setVisible(state == Qt.Checked)
+        self.columnList.blockSignals(False)
+        self.graphWidget.autoRange() # 전체 선택/해제 후 화면 맞춤
 
     def loadCSV(self):
         fname, _ = QFileDialog.getOpenFileName(self, 'Open file', '', "CSV files (*.csv)")
@@ -91,43 +102,37 @@ class BigDataChartApp(QWidget):
                 self.graphWidget.clear()
                 self.plot_items = {}
                 self.columnList.clear()
-                
-                # X축 처리
-                x_col = self.df.columns[0]
-                self.x_timestamps = self.parse_dates_custom(self.df.get_column(x_col)).to_numpy()
-                
-                # 십자선 재등록
                 self.graphWidget.addItem(self.vLine)
-                self.graphWidget.addItem(self.hLine)
 
-                # Y축 리스트업 (체크박스 생성)
+                x_col = self.df.columns[0]
+                self.x_timestamps = (self.df[x_col].cast(pl.Datetime).cast(pl.Int64) / 10**6).to_numpy()
+                
                 colors = ['b', 'r', 'g', 'c', 'm', 'y']
                 for i, col_name in enumerate(self.df.columns[1:]):
                     item = QListWidgetItem(col_name)
                     item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                    item.setCheckState(Qt.Checked) # 기본값: 체크됨
+                    item.setCheckState(Qt.Checked)
                     self.columnList.addItem(item)
                     
-                    # 미리 그래프를 생성하되 보이게 설정
-                    y_data = self.df.get_column(col_name).to_numpy()
-                    plot = self.graphWidget.plot(self.x_timestamps, y_data, 
-                                                pen=pg.mkPen(color=colors[i % len(colors)], width=1), 
-                                                name=col_name)
+                    y_data = self.df[col_name].to_numpy()
+                    plot = pg.PlotDataItem(self.x_timestamps, y_data, 
+                                           pen=pg.mkPen(color=colors[i % 6], width=1.2), 
+                                           name=col_name, skipFiniteCheck=True)
+                    self.graphWidget.addItem(plot)
                     self.plot_items[col_name] = plot
 
+                # 불러오기 직후 자동으로 전체 데이터에 맞게 스케일 조정
                 self.graphWidget.autoRange()
-                self.infoLabel.setText(f"완료: {len(self.df)}행 로드")
+                self.infoLabel.setText(f"데이터 로드 완료: {len(self.df):,} 행")
             except Exception as e:
-                QMessageBox.critical(self, "에러", f"파일 읽기 실패: {str(e)}")
+                QMessageBox.critical(self, "에러", f"로드 실패: {str(e)}")
 
     def updatePlots(self, item):
-        """체크박스 상태에 따라 그래프를 보이거나 숨김"""
         col_name = item.text()
         if col_name in self.plot_items:
-            if item.checkState() == Qt.Checked:
-                self.plot_items[col_name].show()
-            else:
-                self.plot_items[col_name].hide()
+            self.plot_items[col_name].setVisible(item.checkState() == Qt.Checked)
+            # 체크 상태 변경 시 화면 스케일 자동 재조정 (선택 사항)
+            # self.graphWidget.autoRange() 
 
     def mouseMoved(self, evt):
         pos = evt[0]
@@ -136,23 +141,18 @@ class BigDataChartApp(QWidget):
             index = np.searchsorted(self.x_timestamps, mousePoint.x())
             
             if 0 <= index < len(self.df):
-                actual_x = self.x_timestamps[index]
-                date_str = datetime.fromtimestamp(actual_x).strftime('%Y-%m-%d %H:%M:%S')
+                date_str = datetime.fromtimestamp(self.x_timestamps[index]).strftime('%Y-%m-%d %H:%M:%S')
                 val_str = f"[{date_str}]"
-                
-                # 체크된 열의 데이터만 상단 라벨에 표시
                 for i in range(self.columnList.count()):
                     item = self.columnList.item(i)
                     if item.checkState() == Qt.Checked:
                         col = item.text()
                         val_str += f" | {col}: {self.df[index, col]}"
-                
                 self.infoLabel.setText(val_str)
-                self.vLine.setPos(actual_x)
-                self.hLine.setPos(mousePoint.y())
+                self.vLine.setPos(mousePoint.x())
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    ex = BigDataChartApp()
+    ex = UltimateChartApp()
     ex.show()
     sys.exit(app.exec_())
