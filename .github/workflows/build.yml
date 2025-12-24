@@ -22,7 +22,7 @@ jobs:
 
     - name: Build EXE
       run: |
-        pyinstaller --onefile --noconsole main.py
+        pyinstaller --onefile main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
