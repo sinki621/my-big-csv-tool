@@ -1,7 +1,8 @@
 polars
 pyarrow
 pyqtgraph
-PyQt5
+PyQt6
 numpy
 python-dateutil
 PyOpenGL
+pyinstaller-hooks-contrib
