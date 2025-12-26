@@ -22,7 +22,10 @@ jobs:
 
     - name: Build EXE
       run: |
-        pyinstaller --onefile main.py
+        pyinstaller --noconsole --onefile --clean `
+        --collect-all PyQt6 `
+        --hidden-import pyqtgraph.graphicsItems.DateAxisItem `
+        main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
